@@ -1,0 +1,107 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String   // Hashed
+  name      String
+  role      String   // "FOUNDER", "ACCOUNTANT", "VIEWER"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Contact {
+  id             String        @id @default(uuid())
+  type           String        // "CLIENT" or "VENDOR"
+  name           String
+  email          String
+  phone          String
+  billingAddress String
+  gstin          String
+  state          String        // e.g. "Maharashtra", "Delhi" (for CGST/SGST vs IGST checks)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  invoices       Invoice[]     @relation("ClientInvoices")
+  transactions   Transaction[] @relation("ContactTransactions")
+}
+
+model Invoice {
+  id                 String          @id @default(uuid())
+  invoiceNumber      String          @unique
+  clientId           String
+  client             Contact         @relation("ClientInvoices", fields: [clientId], references: [id], onDelete: Cascade)
+  status             String          // "DRAFT", "SENT", "PAID", "OVERDUE"
+  issueDate          DateTime
+  dueDate            DateTime
+  billingAddress     String
+  isRecurring        Boolean         @default(false)
+  recurrenceInterval String?         // "MONTHLY", "QUARTERLY", "ANNUALLY"
+  eInvoiceRef        String?         // Simulated IRN
+  notes              String?
+  currency           String          @default("INR")
+  exchangeRate       Float           @default(1.0)
+  reminderLevel      Int             @default(0)
+  lastReminderDate   DateTime?
+  items              InvoiceItem[]
+  transactions       Transaction[]   @relation("InvoiceTransactions")
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+}
+
+model InvoiceItem {
+  id            String   @id @default(uuid())
+  invoiceId     String
+  invoice       Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description   String
+  hsnSacCode    String
+  quantity      Float
+  rate          Float
+  gstRate       Float    // Percentage e.g. 18.0
+  cgst          Float    // Computed tax amount
+  sgst          Float    // Computed tax amount
+  igst          Float    // Computed tax amount
+  totalAmount   Float    // (quantity * rate) + cgst + sgst + igst
+}
+
+model Transaction {
+  id          String    @id @default(uuid())
+  type        String    // "INCOME" or "EXPENSE"
+  category    String    // Tag, e.g. "PRODUCT_SALES", "RENT"
+  amount      Float
+  date        DateTime
+  description String
+  contactId   String?
+  contact     Contact?  @relation("ContactTransactions", fields: [contactId], references: [id], onDelete: SetNull)
+  invoiceId   String?
+  invoice     Invoice?  @relation("InvoiceTransactions", fields: [invoiceId], references: [id], onDelete: SetNull)
+  receiptUrl  String?   // Mock attachment path
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Budget {
+  id          String   @id @default(uuid())
+  category    String   @unique // Tag e.g. "SALARIES", "RENT"
+  amount      Float    // Budgeted amount
+  periodStart DateTime
+  periodEnd   DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model NotificationLog {
+  id        String   @id @default(uuid())
+  type      String   // "INVOICE_DELIVERY" or "OVERDUE_REMINDER"
+  recipient String   // Email or Phone number
+  channel   String   // "EMAIL" or "WHATSAPP"
+  status    String   // "SUCCESS" or "FAILED"
+  message   String   // Text content
+  timestamp DateTime @default(now())
+}
