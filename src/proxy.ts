@@ -6,11 +6,15 @@ function decodeBase64Url(str: string): string {
   while (base64.length % 4) {
     base64 += '=';
   }
-  // Use web-standard atob which is available in Next.js Edge runtime
-  return atob(base64);
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new TextDecoder().decode(bytes);
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Let Next.js assets and favicon pass through directly
@@ -35,6 +39,7 @@ export function middleware(request: NextRequest) {
     ) {
       return NextResponse.next();
     }
+    console.warn(`[PROXY NO TOKEN] Redirecting to /login from path: ${pathname}`);
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     return NextResponse.redirect(url);
@@ -42,18 +47,23 @@ export function middleware(request: NextRequest) {
 
   // Parse token payload safely
   let user: { id: string; email: string; role: string; name: string; exp: number } | null = null;
+  let parseError: any = null;
   try {
     const parts = token.split('.');
     if (parts.length === 3) {
       const payloadStr = parts[1];
       const decodedPayload = decodeBase64Url(payloadStr);
       user = JSON.parse(decodedPayload);
+    } else {
+      parseError = `Token parts mismatch: ${parts.length}`;
     }
-  } catch (e) {
+  } catch (e: any) {
     user = null;
+    parseError = e.message || e;
   }
 
   if (!user) {
+    console.warn(`[PROXY AUTH FAILURE] Path: ${pathname} | Error: ${parseError} | Token prefix: ${token?.slice(0, 15)}`);
     const response = NextResponse.redirect(new URL('/login', request.url));
     response.cookies.delete('token');
     return response;
@@ -61,6 +71,7 @@ export function middleware(request: NextRequest) {
 
   // Check expiration
   if (user.exp && Date.now() / 1000 > user.exp) {
+    console.warn(`[PROXY EXPIRED TOKEN] Expired at: ${user.exp} | Current time: ${Date.now() / 1000}`);
     const response = NextResponse.redirect(new URL('/login', request.url));
     response.cookies.delete('token');
     return response;
